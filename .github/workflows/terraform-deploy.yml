@@ -25,7 +25,12 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ matrix.region == 'primary' && 'us-east-1' || 'us-east-2' }}
 
-      - name: Choose the region
+      - name: terraform init
         run: |
           cd terraform/${{ matrix.region }}
-          terraform init && terraform apply -auto-approve
+          terraform init
+      
+      - name: terraform init
+        run: |
+          cd terraform/${{ matrix.region }}
+          terraform apply -auto-approve
