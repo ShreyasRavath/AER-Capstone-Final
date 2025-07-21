@@ -1,0 +1,38 @@
+
+name: Docker Image Build & Push
+
+on:
+  push:
+    branches: [main]
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build & Push Backend Image
+        run: |
+          REPO=$(aws ecr describe-repositories --repository-names aer-backend --region $AWS_REGION --query 'repositories[0].repositoryUri' --output text)
+          docker build -t $REPO:latest ./app-code/backend
+          docker push $REPO:latest
+
+      - name: Build & Push Frontend Image
+        run: |
+          REPO=$(aws ecr describe-repositories --repository-names aer-frontend --region $AWS_REGION --query 'repositories[0].repositoryUri' --output text)
+          docker build -t $REPO:latest ./app-code/frontend
+          docker push $REPO:latest
