@@ -128,9 +128,4 @@ This project demonstrates a **highly available**, **multi-region**, GitOps-based
 - GitHub Actions
 - FastAPI + React
 
----
-
-## 📬 Contact
-
-Feel free to fork, customize, and expand this setup for enterprise-grade multi-region resilience.
 
