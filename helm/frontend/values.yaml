@@ -1,7 +1,7 @@
 
 replicaCount: 2
 image:
-  repository: "<your-ecr-repo-uri>/aer-frontend"
+  repository: "381751878913.dkr.ecr.us-east-1.amazonaws.com/aer-frontend"
   tag: latest
   pullPolicy: IfNotPresent
 service:

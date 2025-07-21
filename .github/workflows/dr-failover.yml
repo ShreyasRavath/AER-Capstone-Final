@@ -1,15 +1,81 @@
 
-name: Manual DR Failover
+name: DR Failover
 
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Failover to which environment (dr)"
+        required: true
+        default: "dr"
+      region:
+        description: "AWS region for failover"
+        required: true
+        default: "us-east-2"
 
 jobs:
   failover:
+    name: Promote DR Region
     runs-on: ubuntu-latest
+
     steps:
-      - name: Log action
-        run: |
-          echo "Triggering manual DR failover to us-east-2"
-          echo "Route 53 DNS failover is handled by health checks"
-          echo "Optionally sync ArgoCD in DR cluster here"
+    - name: Checkout repo
+      uses: actions/checkout@v3
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ github.event.inputs.region }}
+
+    - name: Get DR LoadBalancer DNS
+      id: get-lb
+      run: |
+        DR_LB=$(aws elb describe-load-balancers           --query "LoadBalancerDescriptions[?starts_with(DNSName, 'aer-frontend')].DNSName"           --output text)
+        echo "dr_lb_dns=$DR_LB" >> $GITHUB_OUTPUT
+
+    - name: Update Route 53 to point to DR
+      run: |
+        ZONE_ID=$(aws route53 list-hosted-zones-by-name           --dns-name "yourdomain.com."           --query "HostedZones[0].Id" --output text | cut -d'/' -f3)
+
+        cat > change-batch.json <<EOF
+        {
+          "Comment": "Failover to DR",
+          "Changes": [{
+            "Action": "UPSERT",
+            "ResourceRecordSet": {
+              "Name": "app.yourdomain.com",
+              "Type": "A",
+              "AliasTarget": {
+                "HostedZoneId": "Z35SXDOTRQ7X7K",
+                "DNSName": "${{ steps.get-lb.outputs.dr_lb_dns }}",
+                "EvaluateTargetHealth": false
+              }
+            }
+          }]
+        }
+        EOF
+
+        aws route53 change-resource-record-sets           --hosted-zone-id $ZONE_ID           --change-batch file://change-batch.json
+
+    - name: Install ArgoCD CLI
+      run: |
+        curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+        chmod +x argocd
+        sudo mv argocd /usr/local/bin/argocd
+
+    - name: Port forward ArgoCD server
+      run: |
+        aws eks update-kubeconfig --region ${{ github.event.inputs.region }} --name aer-cluster-dr
+        nohup kubectl port-forward svc/argocd-server -n argocd 8080:443 &
+        sleep 10
+
+    - name: Login and sync ArgoCD apps
+      run: |
+        export ARGOCD_SERVER=localhost:8080
+        ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret \
+          -o jsonpath="{.data.password}" | base64 -d)
+        argocd login $ARGOCD_SERVER --username admin --password $ARGOCD_PASSWORD --insecure
+        argocd app sync aer-backend
+        argocd app sync aer-frontend
